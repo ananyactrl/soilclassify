@@ -169,14 +169,17 @@ def load_model():
         os.path.join(BASE_DIR, "artefacts", "se_mobilenetv2_eurosat.h5"),
         os.path.join(BASE_DIR, "artefacts", "se_model.keras"),
     ]
+    last_err = None
     for p in candidates:
         if os.path.exists(p):
             try:
                 return tf.keras.models.load_model(
                     p, custom_objects={"focal_loss_fn": focal_loss(2.0, 0.25, NUM_CLASSES)}
                 )
-            except Exception:
-                pass
+            except Exception as e:
+                last_err = e
+    if last_err:
+        st.warning(f"Model file found but failed to load: {last_err}")
     return None
 
 @st.cache_resource(show_spinner=False)
@@ -184,12 +187,20 @@ def load_knn_and_scaler():
     knn, scaler = None, None
     for p in [os.path.join(BASE_DIR, "knn_fallback.pkl"), os.path.join(BASE_DIR, "artefacts", "knn_fallback.pkl")]:
         if os.path.exists(p):
-            with open(p, "rb") as f: knn = pickle.load(f)
-            break
+            try:
+                with open(p, "rb") as f:
+                    knn = pickle.load(f)
+                break
+            except Exception as e:
+                st.warning(f"KNN load failed: {e}")
     for p in [os.path.join(BASE_DIR, "emb_scaler.pkl"), os.path.join(BASE_DIR, "artefacts", "emb_scaler.pkl")]:
         if os.path.exists(p):
-            with open(p, "rb") as f: scaler = pickle.load(f)
-            break
+            try:
+                with open(p, "rb") as f:
+                    scaler = pickle.load(f)
+                break
+            except Exception as e:
+                st.warning(f"Scaler load failed: {e}")
     return knn, scaler
 
 @st.cache_resource(show_spinner=False)
