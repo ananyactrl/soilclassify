@@ -293,30 +293,60 @@ def page_home():
     with c4:
         st.markdown(f'<div class="metric-card v"><div class="value">{avg_conf*100:.1f}%</div><div class="label">Avg SE Confidence</div></div>', unsafe_allow_html=True)
 
-    # Interactive radar chart — model comparison
+    # ── Quick-nav cards ──────────────────────────────────────────────────────
+    st.markdown('<div class="section-header">Explore the Dashboard</div>', unsafe_allow_html=True)
+    nav_items = [
+        ("🔍 Predict",          "Upload & Classify",      "Run the agentic router on any satellite image with live Grad-CAM attention maps.",          "#38bdf8", "Predict"),
+        ("📊 Model Comparison", "Benchmark All Approaches","Classical ML → Vanilla MobileNetV2 → SE-MobileNetV2 → Full Router pipeline.",              "#34d399", "Model Comparison"),
+        ("📈 Training Progress","Curriculum Phases",       "Validation accuracy across easy (40%), medium (70%), and full-data training phases.",       "#a78bfa", "Training Progress"),
+        ("🧠 Explainability",   "Grad-CAM & SE Blocks",   "See where the network attends and how SE channel excitation recalibrates features.",        "#f472b6", "Explainability"),
+        ("ℹ️ About",            "Project Overview",        "Dataset details, architecture summary, tech stack, and academic references.",               "#94a3b8", "About"),
+    ]
+    nav_cols = st.columns(5)
+    for col, (title, subtitle, desc, accent, target) in zip(nav_cols, nav_items):
+        with col:
+            st.markdown(f"""
+<div style="position:relative;background:#151b28;border:1px solid #2a3548;border-radius:12px;
+     padding:18px 14px 12px;min-height:150px;overflow:hidden;margin-bottom:6px;">
+  <div style="position:absolute;top:0;left:0;right:0;height:3px;background:{accent};box-shadow:0 0 14px {accent};"></div>
+  <div style="font-size:1.05rem;font-weight:700;color:#f1f5f9;margin-top:4px;">{title}</div>
+  <div style="font-size:.72rem;color:{accent};font-weight:600;margin:3px 0 8px;text-transform:uppercase;letter-spacing:.06em;">{subtitle}</div>
+  <div style="font-size:.8rem;color:#94a3b8;line-height:1.45;">{desc}</div>
+</div>""", unsafe_allow_html=True)
+            if st.button(f"Open", key=f"nav_{target}", use_container_width=True):
+                st.session_state.nav_page = target
+                st.rerun()
+
+    # ── Interactive radar chart ───────────────────────────────────────────────
     st.markdown('<div class="section-header">Model Performance Radar</div>', unsafe_allow_html=True)
 
     ml = art.get("ml_results", {}) if art else {}
-    radar_models = {
-        "Logistic Reg.": [fmt_pct(ml.get("Logistic Regression", {}).get("acc", 74.2)), float(ml.get("Logistic Regression", {}).get("f1", 0.731))*100, 0, 0, 0],
-        "Random Forest": [fmt_pct(ml.get("Random Forest", {}).get("acc", 93.1)), float(ml.get("Random Forest", {}).get("f1", 0.928))*100, 0, 0, 0],
-        "Vanilla MobileNetV2": [fmt_pct(art.get("van_acc", 96.71) if art else 96.71), float(art.get("van_f1", 0.9668) if art else 0.9668)*100, 70, 0, 0],
-        "SE-MobileNetV2": [se_acc, float(art.get("se_f1", 0.9831) if art else 0.9831)*100, 85, 90, 0],
-        "SE + Router": [routed_acc, float(art.get("routed_f1", 0.9902) if art else 0.9902)*100, 85, 90, 95],
-    }
+
+    def _hex_to_rgba(hex_color, alpha=0.12):
+        h = hex_color.lstrip("#")
+        r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+        return f"rgba({r},{g},{b},{alpha})"
+
+    radar_data = [
+        ("Logistic Reg.",     [fmt_pct(ml.get("Logistic Regression",{}).get("acc",74.2)), float(ml.get("Logistic Regression",{}).get("f1",0.731))*100, 0,  0,  0 ], "#3b82f6"),
+        ("Random Forest",     [fmt_pct(ml.get("Random Forest",{}).get("acc",93.1)),        float(ml.get("Random Forest",{}).get("f1",0.928))*100,        0,  0,  0 ], "#60a5fa"),
+        ("Vanilla MobileNetV2",[fmt_pct(art.get("van_acc",96.71) if art else 96.71),       float(art.get("van_f1",0.9668) if art else 0.9668)*100,       70, 0,  0 ], "#f59e0b"),
+        ("SE-MobileNetV2",    [se_acc,                                                      float(art.get("se_f1",0.9831) if art else 0.9831)*100,        85, 90, 0 ], "#10b981"),
+        ("SE + Router",       [routed_acc,                                                  float(art.get("routed_f1",0.9902) if art else 0.9902)*100,    85, 90, 95], "#059669"),
+    ]
     categories = ["Accuracy", "Macro F1 ×100", "SE Attention", "Curriculum", "Agentic Router"]
-    colors_radar = ["#3b82f6", "#f59e0b", "#f59e0b", "#10b981", "#059669"]
 
     fig_radar = go.Figure()
-    for (name, vals), color in zip(radar_models.items(), colors_radar):
+    for name, vals, color in radar_data:
+        closed_vals  = vals + [vals[0]]
+        closed_theta = categories + [categories[0]]
         fig_radar.add_trace(go.Scatterpolar(
-            r=vals + [vals[0]],
-            theta=categories + [categories[0]],
-            fill="toself",
-            name=name,
+            r=closed_vals, theta=closed_theta,
+            fill="toself", name=name,
             line=dict(color=color, width=2),
-            fillcolor=color.replace("#", "rgba(").replace(")", ",0.08)") if "#" in color else color,
-            opacity=0.85,
+            fillcolor=_hex_to_rgba(color, 0.10),
+            opacity=0.9,
+            hovertemplate="<b>%{theta}</b>: %{r:.1f}<extra>" + name + "</extra>",
         ))
     fig_radar.update_layout(
         polar=dict(
@@ -324,30 +354,80 @@ def page_home():
             angularaxis=dict(gridcolor="#2a3548", tickfont=dict(color="#94a3b8", size=11)),
             bgcolor="#151b28",
         ),
-        legend=dict(orientation="h", yanchor="bottom", y=-0.25, xanchor="center", x=0.5),
+        legend=dict(orientation="h", yanchor="bottom", y=-0.28, xanchor="center", x=0.5, font=dict(size=11)),
         showlegend=True,
     )
-    style_plot(fig_radar, height=420)
+    style_plot(fig_radar, height=440)
     st.plotly_chart(fig_radar, use_container_width=True)
 
-    # What we did differently — compact table
-    st.markdown('<div class="section-header">What We Did Differently</div>', unsafe_allow_html=True)
-    df_comp = pd.DataFrame({
-        "Component": ["Backbone", "Attention", "Loss", "Training", "Inference", "Fallback"],
-        "Vanilla Baseline": ["MobileNetV2 (frozen)", "None", "Cross-Entropy", "Single-phase", "Argmax softmax", "None"],
-        "Our Approach": ["MobileNetV2 (4 taps)", "SE blocks", "Focal Loss γ=2", "3-phase Curriculum", "Agentic Router", "KNN k=7 on embeddings"],
-    })
-    st.dataframe(df_comp, use_container_width=True, hide_index=True)
+    # ── Accuracy progression bar ──────────────────────────────────────────────
+    st.markdown('<div class="section-header">Accuracy Progression</div>', unsafe_allow_html=True)
+    prog_names  = ["Logistic Reg.", "Decision Tree", "KNN (k=5)", "Random Forest", "Vanilla MobileNetV2", "SE-MobileNetV2", "SE + Router"]
+    prog_accs   = [
+        fmt_pct(ml.get("Logistic Regression",{}).get("acc",74.2)),
+        fmt_pct(ml.get("Decision Tree",{}).get("acc",79.8)),
+        fmt_pct(ml.get("KNN (k=5)",{}).get("acc",86.5)),
+        fmt_pct(ml.get("Random Forest",{}).get("acc",93.1)),
+        fmt_pct(art.get("van_acc",96.71) if art else 96.71),
+        se_acc, routed_acc,
+    ]
+    prog_colors = ["#3b82f6","#60a5fa","#93c5fd","#bfdbfe","#f59e0b","#10b981","#059669"]
+    fig_prog = go.Figure(go.Bar(
+        x=prog_accs, y=prog_names, orientation="h",
+        marker=dict(color=prog_colors, line=dict(width=0)),
+        text=[f"{v:.2f}%" for v in prog_accs],
+        textposition="outside", textfont=dict(color="#e2e8f0", size=11),
+        hovertemplate="%{y}: %{x:.2f}%<extra></extra>",
+    ))
+    fig_prog.update_layout(
+        xaxis=dict(title="Accuracy (%)", range=[0, 108]),
+        yaxis=dict(autorange="reversed"),
+        showlegend=False,
+    )
+    style_plot(fig_prog, height=320)
+    st.plotly_chart(fig_prog, use_container_width=True)
 
-    # Class grid
+    # ── What we did differently ───────────────────────────────────────────────
+    st.markdown('<div class="section-header">What We Did Differently</div>', unsafe_allow_html=True)
+    diff_cols = st.columns(3)
+    diff_items = [
+        ("#38bdf8", "Multi-Scale SE Attention",
+         "SE blocks applied at 4 backbone taps (block_3/6/13/out_relu). "
+         "Each scale captures different spatial granularity — from local texture to global context."),
+        ("#a78bfa", "3-Phase Curriculum Learning",
+         "Samples ranked by difficulty via a Random Forest proxy. Training progresses from "
+         "easiest 40% → 70% → full dataset, preventing early overfitting to hard examples."),
+        ("#34d399", "Agentic Confidence Router",
+         "At inference, low-confidence predictions (< 60%) are rerouted to a KNN specialist "
+         "trained on SE embeddings, recovering accuracy on ambiguous samples."),
+        ("#fbbf24", "Focal Loss",
+         "Focal Loss (γ=2, α=0.25) down-weights easy examples and focuses training on "
+         "hard, misclassified samples — critical for class-imbalanced satellite imagery."),
+        ("#f472b6", "Multi-Scale Feature Fusion",
+         "GAP outputs from all 4 SE-attended scales are concatenated into a 2144-d vector, "
+         "then compressed through Dense(512) → Dense(256) before classification."),
+        ("#94a3b8", "KNN Fallback Specialist",
+         "KNN (k=7, cosine distance) trained on 256-d SE embeddings provides a non-parametric "
+         "fallback that handles distribution-shift and ambiguous boundary cases."),
+    ]
+    for i, (accent, title, desc) in enumerate(diff_items):
+        with diff_cols[i % 3]:
+            st.markdown(f"""
+<div style="background:linear-gradient(145deg,#151b28,#1a2236);border:1px solid #2a3548;
+     border-left:3px solid {accent};border-radius:10px;padding:16px 14px;margin-bottom:10px;">
+  <div style="font-size:.9rem;font-weight:700;color:#f1f5f9;margin-bottom:6px;">{title}</div>
+  <div style="font-size:.8rem;color:#94a3b8;line-height:1.5;">{desc}</div>
+</div>""", unsafe_allow_html=True)
+
+    # ── Class grid ────────────────────────────────────────────────────────────
     st.markdown('<div class="section-header">EuroSAT Land-Use Classes</div>', unsafe_allow_html=True)
-    cols = st.columns(5)
+    cls_cols = st.columns(5)
     for i, cls in enumerate(EUROSAT_CLASSES):
         color = CLASS_COLORS.get(cls, "#64748b")
-        with cols[i % 5]:
+        with cls_cols[i % 5]:
             st.markdown(f'<div class="class-card"><div class="swatch" style="background:{color};"></div><div class="name">{cls}</div></div>', unsafe_allow_html=True)
 
-    # Architecture
+    # ── Architecture ──────────────────────────────────────────────────────────
     st.markdown('<div class="section-header">Architecture Overview</div>', unsafe_allow_html=True)
     render_architecture_diagram()
 
