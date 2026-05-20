@@ -339,8 +339,9 @@ def make_gradcam(model, img_array, img_size: int = IMG_SIZE):
 
     # Run once outside tape to get pred_idx safely
     _, preds_pre = grad_model(inp_tensor)
-    pred_idx   = int(np.argmax(preds_pre[0].numpy()))
-    confidence = float(preds_pre[0, pred_idx].numpy())
+    preds_np   = preds_pre.numpy()          # shape (1, num_classes)
+    pred_idx   = int(np.argmax(preds_np[0]))
+    confidence = float(preds_np[0, pred_idx])
 
     with tf.GradientTape() as tape:
         tape.watch(inp_tensor)
