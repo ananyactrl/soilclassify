@@ -336,15 +336,23 @@ def make_gradcam(model, img_array, img_size: int = IMG_SIZE):
             return None
 
     inp_tensor = tf.cast(img_array[np.newaxis], tf.float32)
+
+    # Run once outside tape to get pred_idx safely
+    _, preds_pre = grad_model(inp_tensor)
+    pred_idx   = int(np.argmax(preds_pre[0].numpy()))
+    confidence = float(preds_pre[0, pred_idx].numpy())
+
     with tf.GradientTape() as tape:
+        tape.watch(inp_tensor)
         conv_out, preds = grad_model(inp_tensor)
-        pred_idx = int(tf.argmax(preds[0]).numpy())
-        confidence = float(preds[0, pred_idx].numpy())
         loss = preds[:, pred_idx]
 
     grads = tape.gradient(loss, conv_out)
     if grads is None:
-        return None
+        # fallback: gradient w.r.t. input
+        grads = tape.gradient(loss, inp_tensor)
+        if grads is None:
+            return None
 
     weights = tf.reduce_mean(grads, axis=(0, 1, 2))
     cam = (conv_out[0] @ weights[..., tf.newaxis]).numpy().squeeze()
