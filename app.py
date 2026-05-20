@@ -856,3 +856,137 @@ Applied at 4 scales — captures both local texture and global context.
             style_plot(fig_pie, height=280)
             st.plotly_chart(fig_pie, use_container_width=True)
 
+
+# =============================================================================
+# PAGE 6 — ABOUT
+# =============================================================================
+
+def page_about():
+    import pandas as pd
+
+    st.markdown('<div class="section-header">About This Project</div>', unsafe_allow_html=True)
+    st.markdown(
+        "A complete land-use classification pipeline for the **EuroSAT RGB** dataset — "
+        "custom SE-MobileNetV2 architecture, curriculum learning, and an agentic confidence router."
+    )
+
+    art = get_artefacts()
+    se_acc     = fmt_pct(art.get("se_acc",     98.42) if art else 98.42)
+    routed_acc = fmt_pct(art.get("routed_acc", 99.08) if art else 99.08)
+    van_acc    = fmt_pct(art.get("van_acc",    96.71) if art else 96.71)
+    se_f1      = float(art.get("se_f1",   0.9831) if art else 0.9831)
+    rt_f1      = float(art.get("routed_f1", 0.9902) if art else 0.9902)
+
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        st.markdown(f'<div class="metric-card"><div class="value">{routed_acc:.2f}%</div><div class="label">Best Accuracy (SE + Router)</div></div>', unsafe_allow_html=True)
+    with c2:
+        st.markdown(f'<div class="metric-card g"><div class="value">{rt_f1:.4f}</div><div class="label">Best Macro F1 (SE + Router)</div></div>', unsafe_allow_html=True)
+    with c3:
+        st.markdown(f'<div class="metric-card a"><div class="value">+{routed_acc - van_acc:.2f}%</div><div class="label">Improvement vs Vanilla MobileNetV2</div></div>', unsafe_allow_html=True)
+
+    # Architecture summary
+    st.markdown('<div class="section-header">Architecture Summary</div>', unsafe_allow_html=True)
+    df_arch = pd.DataFrame({
+        "Component": ["Backbone", "Feature Taps", "Attention", "Fusion", "Head", "Loss", "Training", "Router", "Fallback"],
+        "Detail": [
+            "MobileNetV2 (ImageNet pretrained)",
+            "4 scales: block_3, block_6, block_13, out_relu",
+            "Squeeze-and-Excitation blocks (ratio=16) at each scale",
+            "GlobalAveragePool + Concatenate → 2144-d",
+            "Dense(512, BN, Dropout 0.4) → Dense(256, Dropout 0.3) → Softmax(10)",
+            "Focal Loss (gamma=2.0, alpha=0.25)",
+            "3-phase curriculum: easy 40% → medium 70% → full 100%",
+            "Confidence threshold = 0.60",
+            "KNN (k=7, cosine) on 256-d SE embeddings",
+        ],
+        "Result": [
+            "Strong feature extraction",
+            "Multi-scale spatial context",
+            f"SE Accuracy: {se_acc:.2f}%",
+            "2144-d multi-scale embedding",
+            f"SE F1: {se_f1:.4f}",
+            "Focus on hard examples",
+            f"Phase 3 best: {se_acc:.2f}%",
+            "15.0% samples routed",
+            f"Router Accuracy: {routed_acc:.2f}%",
+        ],
+    })
+    st.dataframe(df_arch, use_container_width=True, hide_index=True)
+
+    # Dataset
+    st.markdown('<div class="section-header">EuroSAT Dataset</div>', unsafe_allow_html=True)
+    col_info, col_classes = st.columns([1, 1])
+    with col_info:
+        st.markdown("""
+**EuroSAT** — 27,000 labeled Sentinel-2 satellite patches, 10 land-use classes across Europe.
+
+| Property | Value |
+|---|---|
+| Total samples | 27,000 |
+| Image size | 64 × 64 px, RGB |
+| Train / Test split | 80% / 20% stratified |
+| Test set size | 5,400 samples |
+| Samples per class | 2,000 – 3,000 |
+""")
+    with col_classes:
+        df_cls = pd.DataFrame({
+            "Class": EUROSAT_CLASSES,
+            "Description": [
+                "Fields with annual crops",
+                "Dense forest and woodland",
+                "Grasslands and herbaceous vegetation",
+                "Roads and transport corridors",
+                "Industrial zones and warehouses",
+                "Pasture and grazing land",
+                "Orchards and permanent crops",
+                "Urban residential areas",
+                "Rivers and waterways",
+                "Sea, lakes, and water bodies",
+            ],
+        })
+        st.dataframe(df_cls, use_container_width=True, hide_index=True)
+
+    # Class swatches
+    cols = st.columns(5)
+    for i, cls in enumerate(EUROSAT_CLASSES):
+        color = CLASS_COLORS.get(cls, "#64748b")
+        with cols[i % 5]:
+            st.markdown(f'<div class="class-card"><div class="swatch" style="background:{color};"></div><div class="name">{cls}</div></div>', unsafe_allow_html=True)
+
+    # Tech stack
+    st.markdown('<div class="section-header">Technology Stack</div>', unsafe_allow_html=True)
+    tech_items = [
+        ("Python 3.10+", "#3b82f6"), ("TensorFlow / Keras", "#f59e0b"), ("MobileNetV2", "#10b981"),
+        ("Streamlit", "#f472b6"), ("Plotly", "#a78bfa"), ("scikit-learn", "#38bdf8"),
+        ("NumPy", "#34d399"), ("OpenCV", "#fbbf24"), ("Pillow", "#94a3b8"), ("EuroSAT Dataset", "#64748b"),
+    ]
+    badges = "".join(f'<span class="tech-badge" style="border-color:{c};color:{c};">{n}</span>' for n, c in tech_items)
+    st.markdown(f'<div style="margin:12px 0;">{badges}</div>', unsafe_allow_html=True)
+
+    # References
+    st.markdown('<div class="section-header">References</div>', unsafe_allow_html=True)
+    st.markdown("""
+1. **EuroSAT:** Helber et al. (2019). EuroSAT: A Novel Dataset and Deep Learning Benchmark for Land Use and Land Cover Classification. *IEEE JSTARS.*
+2. **SE Networks:** Hu et al. (2018). Squeeze-and-Excitation Networks. *CVPR 2018.*
+3. **MobileNetV2:** Sandler et al. (2018). MobileNetV2: Inverted Residuals and Linear Bottlenecks. *CVPR 2018.*
+4. **Focal Loss:** Lin et al. (2017). Focal Loss for Dense Object Detection. *ICCV 2017.*
+5. **Curriculum Learning:** Bengio et al. (2009). Curriculum Learning. *ICML 2009.*
+6. **Grad-CAM:** Selvaraju et al. (2017). Grad-CAM: Visual Explanations from Deep Networks. *ICCV 2017.*
+""")
+
+
+# =============================================================================
+# MAIN ROUTER
+# =============================================================================
+
+def main():
+    page = st.session_state.nav_page
+    if   page == "Home":              page_home()
+    elif page == "Predict":           page_predict()
+    elif page == "Model Comparison":  page_model_comparison()
+    elif page == "Training Progress": page_training_progress()
+    elif page == "Explainability":    page_explainability()
+    elif page == "About":             page_about()
+
+main()
