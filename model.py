@@ -338,8 +338,8 @@ def make_gradcam(model, img_array, img_size: int = IMG_SIZE):
     inp_tensor = tf.cast(img_array[np.newaxis], tf.float32)
     with tf.GradientTape() as tape:
         conv_out, preds = grad_model(inp_tensor)
-        pred_idx = int(tf.argmax(preds[0]))
-        confidence = float(preds[0, pred_idx])
+        pred_idx = int(tf.argmax(preds[0]).numpy())
+        confidence = float(preds[0, pred_idx].numpy())
         loss = preds[:, pred_idx]
 
     grads = tape.gradient(loss, conv_out)
