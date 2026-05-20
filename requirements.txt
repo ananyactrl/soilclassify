@@ -8,6 +8,3 @@ seaborn==0.13.2
 plotly==5.24.1
 Pillow==10.4.0
 pandas==2.2.3
-rich==13.7.1
-markdown-it-py==3.0.0
-pygments==2.17.2
