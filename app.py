@@ -237,9 +237,9 @@ with st.sidebar:
     ])
 
     if art:
-        se_acc_val  = fmt_pct(art.get("se_acc", 98.42))
-        rt_acc_val  = fmt_pct(art.get("routed_acc", 99.08))
-        van_acc_val = fmt_pct(art.get("van_acc", 96.71))
+        se_acc_val  = fmt_pct(art["se_acc"])
+        rt_acc_val  = fmt_pct(art["routed_acc"])
+        van_acc_val = fmt_pct(art["van_acc"])
         st.markdown('<span class="status-dot dot-green"></span><span style="font-size:.82rem;color:#94a3b8;">Metrics loaded</span>', unsafe_allow_html=True)
         st.metric("SE-MobileNetV2", f"{se_acc_val:.2f}%")
         st.metric("Agentic Router", f"{rt_acc_val:.2f}%", delta=f"+{rt_acc_val - van_acc_val:.2f}% vs Vanilla")
@@ -261,14 +261,17 @@ def page_home():
     import pandas as pd
 
     art = get_artefacts()
-    se_acc     = fmt_pct(art.get("se_acc",     98.42) if art else 98.42)
-    routed_acc = fmt_pct(art.get("routed_acc", 99.08) if art else 99.08)
-    van_acc    = fmt_pct(art.get("van_acc",    96.71) if art else 96.71)
-    n_test     = int(art.get("n_test",     5400) if art else 5400)
-    n_knn      = int(art.get("n_knn_routed", 812) if art else 812)
-    avg_conf   = float(art.get("avg_se_conf", 0.847) if art else 0.847)
+    if not art:
+        st.error("No artefacts found. Run `python extract_notebook_metrics.py` to generate metrics.")
+        return
+
+    se_acc     = fmt_pct(art["se_acc"])
+    routed_acc = fmt_pct(art["routed_acc"])
+    van_acc    = fmt_pct(art["van_acc"])
+    n_test     = int(art.get("n_test", 5400))
+    n_knn      = int(art.get("n_knn_routed", 810))
     improvement = routed_acc - van_acc
-    knn_pct     = n_knn / n_test * 100 if n_test > 0 else 15.0
+    knn_pct     = n_knn / n_test * 100 if n_test > 0 else 0.0
 
     # Hero
     st.markdown(f"""
@@ -291,7 +294,7 @@ def page_home():
         sign = "+" if improvement >= 0 else ""
         st.markdown(f'<div class="metric-card a"><div class="value">{sign}{improvement:.2f}%</div><div class="label">Improvement vs Vanilla</div></div>', unsafe_allow_html=True)
     with c4:
-        st.markdown(f'<div class="metric-card v"><div class="value">{avg_conf*100:.1f}%</div><div class="label">Avg SE Confidence</div></div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="metric-card v"><div class="value">{knn_pct:.1f}%</div><div class="label">Samples Routed to KNN</div></div>', unsafe_allow_html=True)
 
     # ── Quick-nav cards ──────────────────────────────────────────────────────
     st.markdown('<div class="section-header">Explore the Dashboard</div>', unsafe_allow_html=True)
@@ -320,7 +323,7 @@ def page_home():
     # ── Interactive radar chart ───────────────────────────────────────────────
     st.markdown('<div class="section-header">Model Performance Radar</div>', unsafe_allow_html=True)
 
-    ml = art.get("ml_results", {}) if art else {}
+    ml = art.get("ml_results", {})
 
     def _hex_to_rgba(hex_color, alpha=0.12):
         h = hex_color.lstrip("#")
@@ -328,11 +331,11 @@ def page_home():
         return f"rgba({r},{g},{b},{alpha})"
 
     radar_data = [
-        ("Logistic Reg.",     [fmt_pct(ml.get("Logistic Regression",{}).get("acc",74.2)), float(ml.get("Logistic Regression",{}).get("f1",0.731))*100, 0,  0,  0 ], "#3b82f6"),
-        ("Random Forest",     [fmt_pct(ml.get("Random Forest",{}).get("acc",93.1)),        float(ml.get("Random Forest",{}).get("f1",0.928))*100,        0,  0,  0 ], "#60a5fa"),
-        ("Vanilla MobileNetV2",[fmt_pct(art.get("van_acc",96.71) if art else 96.71),       float(art.get("van_f1",0.9668) if art else 0.9668)*100,       70, 0,  0 ], "#f59e0b"),
-        ("SE-MobileNetV2",    [se_acc,                                                      float(art.get("se_f1",0.9831) if art else 0.9831)*100,        85, 90, 0 ], "#10b981"),
-        ("SE + Router",       [routed_acc,                                                  float(art.get("routed_f1",0.9902) if art else 0.9902)*100,    85, 90, 95], "#059669"),
+        ("Logistic Reg.",      [fmt_pct(ml["Logistic Regression"]["acc"]), float(ml["Logistic Regression"]["f1"])*100, 0,  0,  0 ], "#3b82f6"),
+        ("Random Forest",      [fmt_pct(ml["Random Forest"]["acc"]),        float(ml["Random Forest"]["f1"])*100,        0,  0,  0 ], "#60a5fa"),
+        ("Vanilla MobileNetV2",[fmt_pct(art["van_acc"]),                    float(art["van_f1"])*100,                   70, 0,  0 ], "#f59e0b"),
+        ("SE-MobileNetV2",     [se_acc,                                     float(art["se_f1"])*100,                    85, 90, 0 ], "#10b981"),
+        ("SE + Router",        [routed_acc,                                 float(art["routed_f1"])*100,                85, 90, 95], "#059669"),
     ]
     categories = ["Accuracy", "Macro F1 ×100", "SE Attention", "Curriculum", "Agentic Router"]
 
@@ -362,13 +365,13 @@ def page_home():
 
     # ── Accuracy progression bar ──────────────────────────────────────────────
     st.markdown('<div class="section-header">Accuracy Progression</div>', unsafe_allow_html=True)
-    prog_names  = ["Logistic Reg.", "Decision Tree", "KNN (k=5)", "Random Forest", "Vanilla MobileNetV2", "SE-MobileNetV2", "SE + Router"]
+    prog_names  = ["Logistic Reg.", "KNN (k=5)", "Decision Tree", "Random Forest", "Vanilla MobileNetV2", "SE-MobileNetV2", "SE + Router"]
     prog_accs   = [
-        fmt_pct(ml.get("Logistic Regression",{}).get("acc",74.2)),
-        fmt_pct(ml.get("Decision Tree",{}).get("acc",79.8)),
-        fmt_pct(ml.get("KNN (k=5)",{}).get("acc",86.5)),
-        fmt_pct(ml.get("Random Forest",{}).get("acc",93.1)),
-        fmt_pct(art.get("van_acc",96.71) if art else 96.71),
+        fmt_pct(ml["Logistic Regression"]["acc"]),
+        fmt_pct(ml["KNN (k=5)"]["acc"]),
+        fmt_pct(ml["Decision Tree"]["acc"]),
+        fmt_pct(ml["Random Forest"]["acc"]),
+        fmt_pct(art["van_acc"]),
         se_acc, routed_acc,
     ]
     prog_colors = ["#3b82f6","#60a5fa","#93c5fd","#bfdbfe","#f59e0b","#10b981","#059669"]
@@ -612,16 +615,20 @@ def page_model_comparison():
     st.markdown("All models benchmarked on the EuroSAT test set (n=5,400). Use the toggle to switch between accuracy and F1.")
 
     art = get_artefacts()
-    ml  = art.get("ml_results", {}) if art else {}
+    if not art:
+        st.error("No artefacts found. Run `python extract_notebook_metrics.py` to generate metrics.")
+        return
+
+    ml  = art.get("ml_results", {})
 
     models = [
-        {"name": "Logistic Regression", "acc": fmt_pct(ml.get("Logistic Regression", {}).get("acc", 74.2)),  "f1": float(ml.get("Logistic Regression", {}).get("f1", 0.731)),  "group": "Classical ML",   "color": "#3b82f6"},
-        {"name": "KNN (k=5)",           "acc": fmt_pct(ml.get("KNN (k=5)",           {}).get("acc", 86.5)),  "f1": float(ml.get("KNN (k=5)",           {}).get("f1", 0.862)),  "group": "Classical ML",   "color": "#60a5fa"},
-        {"name": "Decision Tree",       "acc": fmt_pct(ml.get("Decision Tree",        {}).get("acc", 79.8)),  "f1": float(ml.get("Decision Tree",        {}).get("f1", 0.791)),  "group": "Classical ML",   "color": "#93c5fd"},
-        {"name": "Random Forest",       "acc": fmt_pct(ml.get("Random Forest",        {}).get("acc", 93.1)),  "f1": float(ml.get("Random Forest",        {}).get("f1", 0.928)),  "group": "Classical ML",   "color": "#bfdbfe"},
-        {"name": "Vanilla MobileNetV2", "acc": fmt_pct(art.get("van_acc", 96.71) if art else 96.71),          "f1": float(art.get("van_f1", 0.9668) if art else 0.9668),          "group": "Deep Learning",  "color": "#f59e0b"},
-        {"name": "SE-MobileNetV2",      "acc": fmt_pct(art.get("se_acc",  98.42) if art else 98.42),          "f1": float(art.get("se_f1",  0.9831) if art else 0.9831),          "group": "Deep Learning",  "color": "#10b981"},
-        {"name": "SE + Agentic Router", "acc": fmt_pct(art.get("routed_acc", 99.08) if art else 99.08),       "f1": float(art.get("routed_f1", 0.9902) if art else 0.9902),       "group": "Deep Learning",  "color": "#059669"},
+        {"name": "Logistic Regression", "acc": fmt_pct(ml["Logistic Regression"]["acc"]),  "f1": float(ml["Logistic Regression"]["f1"]),  "group": "Classical ML",   "color": "#3b82f6"},
+        {"name": "KNN (k=5)",           "acc": fmt_pct(ml["KNN (k=5)"]["acc"]),            "f1": float(ml["KNN (k=5)"]["f1"]),            "group": "Classical ML",   "color": "#60a5fa"},
+        {"name": "Decision Tree",       "acc": fmt_pct(ml["Decision Tree"]["acc"]),         "f1": float(ml["Decision Tree"]["f1"]),         "group": "Classical ML",   "color": "#93c5fd"},
+        {"name": "Random Forest",       "acc": fmt_pct(ml["Random Forest"]["acc"]),         "f1": float(ml["Random Forest"]["f1"]),         "group": "Classical ML",   "color": "#bfdbfe"},
+        {"name": "Vanilla MobileNetV2", "acc": fmt_pct(art["van_acc"]),                     "f1": float(art["van_f1"]),                     "group": "Deep Learning",  "color": "#f59e0b"},
+        {"name": "SE-MobileNetV2",      "acc": fmt_pct(art["se_acc"]),                      "f1": float(art["se_f1"]),                      "group": "Deep Learning",  "color": "#10b981"},
+        {"name": "SE + Agentic Router", "acc": fmt_pct(art["routed_acc"]),                  "f1": float(art["routed_f1"]),                  "group": "Deep Learning",  "color": "#059669"},
     ]
 
     names  = [m["name"]  for m in models]
@@ -675,7 +682,7 @@ def page_model_comparison():
 
     # Summary table
     st.markdown('<div class="section-header">Summary Table</div>', unsafe_allow_html=True)
-    van_acc = fmt_pct(art.get("van_acc", 96.71) if art else 96.71)
+    van_acc = fmt_pct(art["van_acc"])
     df_summary = pd.DataFrame({
         "Model":         names,
         "Group":         [m["group"] for m in models],
@@ -686,9 +693,9 @@ def page_model_comparison():
     st.dataframe(df_summary, use_container_width=True, hide_index=True)
 
     best = models[best_acc_idx]
-    se_acc = fmt_pct(art.get("se_acc", 98.42) if art else 98.42)
-    n_knn  = int(art.get("n_knn_routed", 812) if art else 812)
-    n_test = int(art.get("n_test", 5400) if art else 5400)
+    se_acc = fmt_pct(art["se_acc"])
+    n_knn  = int(art.get("n_knn_routed", 810))
+    n_test = int(art.get("n_test", 5400))
     st.markdown(
         f'<div class="info-box"><strong>Best model: {best["name"]}</strong> — '
         f'Accuracy {best["acc"]:.2f}%, Macro F1 {best["f1"]:.4f}. '
@@ -712,15 +719,17 @@ def page_training_progress():
     )
 
     art = get_artefacts()
+    if not art:
+        st.error("No artefacts found. Run `python extract_notebook_metrics.py` to generate metrics.")
+        return
 
-    if art and "history" in art:
+    if "history" in art:
         p1 = art["history"].get("phase1_val_acc", [])
         p2 = art["history"].get("phase2_val_acc", [])
         p3 = art["history"].get("phase3_val_acc", [])
     else:
-        p1 = [0.52, 0.61, 0.70, 0.76, 0.77, 0.80, 0.84, 0.85, 0.86, 0.86, 0.88, 0.89]
-        p2 = [0.88, 0.91, 0.92, 0.92, 0.94, 0.93, 0.95, 0.94, 0.95, 0.94]
-        p3 = [0.95, 0.95, 0.95, 0.96, 0.97, 0.97, 0.98, 0.98, 0.99, 0.98, 0.98, 0.98, 0.99, 0.99, 0.98, 0.98, 0.98, 0.99]
+        st.warning("Training history not found in artefacts.")
+        return
 
     best1 = max(p1) * 100 if p1 else 88.5
     best2 = max(p2) * 100 if p2 else 95.0
@@ -772,31 +781,6 @@ def page_training_progress():
     )
     style_plot(fig_train, height=460)
     st.plotly_chart(fig_train, use_container_width=True)
-
-    # Difficulty distribution
-    if art and "difficulty" in art:
-        st.markdown('<div class="section-header">Sample Difficulty Distribution</div>', unsafe_allow_html=True)
-        difficulty = art["difficulty"]
-        tier_easy_max = float(art.get("tier_easy_max", 0.33))
-        tier_med_max  = float(art.get("tier_med_max",  0.66))
-
-        fig_diff = go.Figure()
-        fig_diff.add_trace(go.Histogram(
-            x=difficulty, nbinsx=40,
-            marker_color="#38bdf8", opacity=0.75,
-            name="All samples",
-            hovertemplate="Difficulty: %{x:.2f}<br>Count: %{y}<extra></extra>",
-        ))
-        for x_val, label, color in [
-            (tier_easy_max, f"Easy/Medium boundary ({tier_easy_max:.2f})", "#fbbf24"),
-            (tier_med_max,  f"Medium/Hard boundary ({tier_med_max:.2f})",  "#f87171"),
-        ]:
-            fig_diff.add_vline(x=x_val, line_dash="dash", line_color=color, line_width=2)
-            fig_diff.add_annotation(x=x_val, y=0, text=label, showarrow=False,
-                                    font=dict(size=9, color=color), xanchor="left", yanchor="bottom")
-        fig_diff.update_layout(xaxis_title="Difficulty Score (1 − max RF confidence)", yaxis_title="Count", showlegend=False)
-        style_plot(fig_diff, height=320)
-        st.plotly_chart(fig_diff, use_container_width=True)
 
     st.markdown(
         f'<div class="info-box"><strong>Curriculum Learning:</strong> Samples ranked by difficulty using a '
@@ -905,10 +889,13 @@ Applied at 4 scales — captures both local texture and global context.
     # Agentic router
     with st.expander("Agentic Confidence Router", expanded=True):
         art_data  = get_artefacts()
-        threshold = float(art_data.get("confidence_threshold", 0.60)) if art_data else 0.60
-        n_direct  = int(art_data.get("n_se_direct",  4588) if art_data else 4588)
-        n_knn     = int(art_data.get("n_knn_routed",  812) if art_data else 812)
-        n_total   = int(art_data.get("n_test",        5400) if art_data else 5400)
+        if not art_data:
+            st.info("No artefacts found.")
+            return
+        threshold = float(art_data.get("confidence_threshold", 0.60))
+        n_direct  = int(art_data.get("n_se_direct",  4590))
+        n_knn     = int(art_data.get("n_knn_routed",  810))
+        n_total   = int(art_data.get("n_test",        5400))
 
         col_text, col_pie = st.columns([1, 1])
         with col_text:
@@ -951,11 +938,15 @@ def page_about():
     )
 
     art = get_artefacts()
-    se_acc     = fmt_pct(art.get("se_acc",     98.42) if art else 98.42)
-    routed_acc = fmt_pct(art.get("routed_acc", 99.08) if art else 99.08)
-    van_acc    = fmt_pct(art.get("van_acc",    96.71) if art else 96.71)
-    se_f1      = float(art.get("se_f1",   0.9831) if art else 0.9831)
-    rt_f1      = float(art.get("routed_f1", 0.9902) if art else 0.9902)
+    if not art:
+        st.error("No artefacts found. Run `python extract_notebook_metrics.py` to generate metrics.")
+        return
+
+    se_acc     = fmt_pct(art["se_acc"])
+    routed_acc = fmt_pct(art["routed_acc"])
+    van_acc    = fmt_pct(art["van_acc"])
+    se_f1      = float(art["se_f1"])
+    rt_f1      = float(art["routed_f1"])
 
     c1, c2, c3 = st.columns(3)
     with c1:
@@ -988,7 +979,7 @@ def page_about():
             f"SE F1: {se_f1:.4f}",
             "Focus on hard examples",
             f"Phase 3 best: {se_acc:.2f}%",
-            "15.0% samples routed",
+            f"{int(art.get('n_knn_routed',810))/int(art.get('n_test',5400))*100:.1f}% samples routed",
             f"Router Accuracy: {routed_acc:.2f}%",
         ],
     })
