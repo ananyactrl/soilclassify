@@ -296,9 +296,11 @@ def make_gradcam(model, img_array, img_size: int = IMG_SIZE):
     Class-discriminative Grad-CAM for SE-MobileNetV2.
     Finds the last Conv2D in the backbone sub-model.
     Returns (cam_resized, overlay, pred_idx, confidence) or None on failure.
+    Uses a persistent GradientTape watching the conv output directly.
     """
     import cv2
 
+    # ── find last Conv2D ─────────────────────────────────────────────────────
     target_layer = None
     for layer in reversed(model.layers):
         if isinstance(layer, tf.keras.layers.Conv2D):
@@ -315,15 +317,15 @@ def make_gradcam(model, img_array, img_size: int = IMG_SIZE):
     if target_layer is None:
         return None
 
+    # ── build grad model ─────────────────────────────────────────────────────
     try:
         grad_model = keras.Model(
             inputs=model.inputs,
             outputs=[target_layer.output, model.output],
         )
     except Exception:
-        sub_models = [l for l in model.layers if hasattr(l, "layers")]
         grad_model = None
-        for sm in sub_models:
+        for sm in [l for l in model.layers if hasattr(l, "layers")]:
             try:
                 grad_model = keras.Model(
                     inputs=model.inputs,
@@ -335,38 +337,40 @@ def make_gradcam(model, img_array, img_size: int = IMG_SIZE):
         if grad_model is None:
             return None
 
-    inp_tensor = tf.cast(img_array[np.newaxis], tf.float32)
+    try:
+        inp = tf.cast(img_array[np.newaxis], tf.float32)
 
-    # Run once outside tape to get pred_idx safely
-    _, preds_pre = grad_model(inp_tensor)
-    preds_np   = preds_pre.numpy()          # shape (1, num_classes)
-    pred_idx   = int(np.argmax(preds_np[0]))
-    confidence = float(preds_np[0, pred_idx])
+        # persistent tape so we can call gradient after the context
+        with tf.GradientTape(persistent=True) as tape:
+            conv_out, preds = grad_model(inp)
+            tape.watch(conv_out)
+            pred_idx   = int(np.argmax(np.array(preds)[0]))
+            confidence = float(np.array(preds)[0, pred_idx])
+            loss       = preds[:, pred_idx]
 
-    with tf.GradientTape() as tape:
-        tape.watch(inp_tensor)
-        conv_out, preds = grad_model(inp_tensor)
-        loss = preds[:, pred_idx]
+        grads = tape.gradient(loss, conv_out)
+        del tape
 
-    grads = tape.gradient(loss, conv_out)
-    if grads is None:
-        # fallback: gradient w.r.t. input
-        grads = tape.gradient(loss, inp_tensor)
         if grads is None:
-            return None
+            # fallback: mean activation map
+            cam = np.mean(np.array(conv_out)[0], axis=-1)
+        else:
+            weights = np.mean(np.array(grads), axis=(0, 1, 2))   # (C,)
+            cam     = np.dot(np.array(conv_out)[0], weights)      # (H, W)
 
-    weights = tf.reduce_mean(grads, axis=(0, 1, 2))
-    cam = (conv_out[0] @ weights[..., tf.newaxis]).numpy().squeeze()
-    cam = np.maximum(cam, 0)
-    if cam.max() > 0:
-        cam /= cam.max()
+        cam = np.maximum(cam, 0).astype(np.float32)
+        if cam.max() > 0:
+            cam /= cam.max()
 
-    cam_resized = cv2.resize(cam, (img_size, img_size))
-    heatmap = cv2.applyColorMap(np.uint8(255 * cam_resized), cv2.COLORMAP_JET)
-    heatmap = cv2.cvtColor(heatmap, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0
-    overlay = np.clip(0.55 * img_array + 0.45 * heatmap, 0, 1)
+        cam_resized = cv2.resize(cam, (img_size, img_size))
+        heatmap = cv2.applyColorMap(np.uint8(255 * cam_resized), cv2.COLORMAP_JET)
+        heatmap = cv2.cvtColor(heatmap, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0
+        overlay = np.clip(0.55 * img_array + 0.45 * heatmap, 0, 1)
 
-    return cam_resized, overlay, pred_idx, confidence
+        return cam_resized, overlay, pred_idx, confidence
+
+    except Exception:
+        return None
 
 
 # ─── K-Medoids ────────────────────────────────────────────────────────────────
