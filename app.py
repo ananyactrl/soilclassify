@@ -209,6 +209,18 @@ def load_feature_extractor(model):
     try: return build_feature_extractor(model)
     except Exception: return None
 
+@st.cache_resource(show_spinner=False)
+def load_markov():
+    """Load Markov transition matrix and degradation risk scores from markov.pkl."""
+    for p in [os.path.join(BASE_DIR, "markov.pkl"), os.path.join(BASE_DIR, "artefacts", "markov.pkl")]:
+        if os.path.exists(p):
+            try:
+                with open(p, "rb") as f:
+                    return pickle.load(f)
+            except Exception:
+                pass
+    return None
+
 @st.cache_data(show_spinner=False)
 def load_artefacts(_json_path, _mtime):
     if not _json_path or not os.path.isfile(_json_path): return None
@@ -613,6 +625,172 @@ def page_predict():
             "Probability (%)": [f"{float(proba_vec[i])*100:.2f}" for i in range(len(EUROSAT_CLASSES))],
         }).sort_values("Probability (%)", ascending=False)
         st.dataframe(df_proba, use_container_width=True, hide_index=True)
+
+    # ── Markov Land-Use Forecasting ───────────────────────────────────────────
+    st.markdown("---")
+    st.markdown('<div class="section-header">🔮 Markov Land-Use Forecasting</div>', unsafe_allow_html=True)
+    st.markdown(
+        "Using the **Markov Transition Probability Matrix** (TPM) trained on EuroSAT class co-occurrence patterns, "
+        "we forecast how the predicted land-use class is likely to evolve over time — and flag degradation risk."
+    )
+
+    markov = load_markov()
+    if markov is None:
+        st.markdown('<div class="warn-box">⚠️ <code>markov.pkl</code> not found. Place it in the <code>streamlit_app/</code> directory.</div>', unsafe_allow_html=True)
+    else:
+        import pandas as pd
+        tpm     = markov["TPM_BLENDED"]          # (10, 10)
+        drs     = markov["DEGRADATION_RISK_SCORES"]  # dict {class: score}
+        classes = markov["classes"]              # list of 10 class names
+
+        # Map predicted class index to markov class index (same order, but be safe)
+        try:
+            mc_idx = classes.index(pred_class)
+        except ValueError:
+            mc_idx = pred_idx
+
+        # Simulate n_steps ahead using matrix power
+        n_steps = st.slider("Forecast horizon (time steps)", min_value=1, max_value=20, value=5, step=1)
+
+        # Compute state distribution at each step
+        state_0 = np.zeros(len(classes))
+        state_0[mc_idx] = 1.0
+
+        states = [state_0]
+        for _ in range(n_steps):
+            states.append(states[-1] @ tpm)
+
+        states_arr = np.array(states)  # (n_steps+1, 10)
+
+        # ── Forecast line chart ───────────────────────────────────────────────
+        st.markdown("#### State Distribution Over Time")
+        fig_markov = go.Figure()
+        step_labels = list(range(n_steps + 1))
+        # Only show top-5 classes by final probability to keep chart clean
+        final_probs = states_arr[-1]
+        top5_mc = np.argsort(final_probs)[::-1][:5]
+
+        palette = ["#38bdf8", "#34d399", "#fbbf24", "#f472b6", "#a78bfa"]
+        for rank, ci in enumerate(top5_mc):
+            fig_markov.add_trace(go.Scatter(
+                x=step_labels,
+                y=states_arr[:, ci] * 100,
+                mode="lines+markers",
+                name=classes[ci],
+                line=dict(color=palette[rank], width=2.5),
+                marker=dict(size=6),
+                hovertemplate=f"<b>{classes[ci]}</b><br>Step %{{x}}: %{{y:.2f}}%<extra></extra>",
+            ))
+        fig_markov.update_layout(
+            xaxis_title="Time Step",
+            yaxis_title="Probability (%)",
+            yaxis_range=[0, 105],
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        )
+        style_plot(fig_markov, height=360)
+        st.plotly_chart(fig_markov, use_container_width=True)
+
+        # ── Transition heatmap for current class ─────────────────────────────
+        col_heat, col_risk = st.columns([3, 2])
+
+        with col_heat:
+            st.markdown(f"#### Transition Probabilities from **{pred_class}**")
+            row = tpm[mc_idx]
+            sorted_ci = np.argsort(row)[::-1]
+            fig_trans = go.Figure(go.Bar(
+                x=[classes[i] for i in sorted_ci],
+                y=[row[i] * 100 for i in sorted_ci],
+                marker_color=[CLASS_COLORS.get(classes[i], "#64748b") for i in sorted_ci],
+                text=[f"{row[i]*100:.1f}%" for i in sorted_ci],
+                textposition="outside",
+                textfont=dict(color="#e2e8f0", size=10),
+                hovertemplate="%{x}: %{y:.2f}%<extra></extra>",
+            ))
+            fig_trans.update_layout(
+                xaxis_title="Next State",
+                yaxis_title="Transition Probability (%)",
+                yaxis_range=[0, 110],
+                xaxis_tickangle=-35,
+                showlegend=False,
+            )
+            style_plot(fig_trans, height=320)
+            st.plotly_chart(fig_trans, use_container_width=True)
+
+        with col_risk:
+            st.markdown("#### Degradation Risk Scores")
+            drs_classes = list(drs.keys())
+            drs_scores  = [drs[c] for c in drs_classes]
+            sorted_drs  = sorted(zip(drs_classes, drs_scores), key=lambda x: x[1], reverse=True)
+            drs_cls_s, drs_val_s = zip(*sorted_drs)
+
+            bar_colors_drs = []
+            for v in drs_val_s:
+                if v >= 0.7:   bar_colors_drs.append("#f87171")
+                elif v >= 0.4: bar_colors_drs.append("#fbbf24")
+                else:          bar_colors_drs.append("#34d399")
+
+            fig_drs = go.Figure(go.Bar(
+                x=list(drs_val_s),
+                y=list(drs_cls_s),
+                orientation="h",
+                marker_color=bar_colors_drs,
+                text=[f"{v:.2f}" for v in drs_val_s],
+                textposition="outside",
+                textfont=dict(color="#e2e8f0", size=10),
+                hovertemplate="%{y}: %{x:.2f}<extra></extra>",
+            ))
+            fig_drs.update_layout(
+                xaxis_title="Risk Score (0–1)",
+                xaxis_range=[0, 1.15],
+                yaxis=dict(autorange="reversed"),
+                showlegend=False,
+            )
+            style_plot(fig_drs, height=320)
+            st.plotly_chart(fig_drs, use_container_width=True)
+
+        # ── Risk callout for predicted class ─────────────────────────────────
+        pred_risk = drs.get(pred_class, 0.0)
+        if pred_risk >= 0.7:
+            risk_color, risk_label, risk_cls = "#f87171", "HIGH", "warn-box"
+        elif pred_risk >= 0.4:
+            risk_color, risk_label, risk_cls = "#fbbf24", "MEDIUM", "warn-box"
+        else:
+            risk_color, risk_label, risk_cls = "#34d399", "LOW", "info-box"
+
+        st.markdown(
+            f'<div class="{risk_cls}"><strong>Degradation Risk for {pred_class}:</strong> '
+            f'<span style="color:{risk_color};font-weight:700;">{risk_label} ({pred_risk:.2f})</span> — '
+            f'Self-transition probability: <strong>{tpm[mc_idx, mc_idx]*100:.1f}%</strong>. '
+            f'After {n_steps} steps, probability of remaining {pred_class}: '
+            f'<strong>{states_arr[-1][mc_idx]*100:.1f}%</strong>.</div>',
+            unsafe_allow_html=True,
+        )
+
+        # ── Stationary distribution ───────────────────────────────────────────
+        with st.expander("Stationary Distribution (Long-Run Equilibrium)"):
+            # Power method: run 100 steps
+            s = np.ones(len(classes)) / len(classes)
+            for _ in range(200):
+                s = s @ tpm
+            fig_stat = go.Figure(go.Bar(
+                x=classes,
+                y=s * 100,
+                marker_color=[CLASS_COLORS.get(c, "#64748b") for c in classes],
+                text=[f"{v*100:.1f}%" for v in s],
+                textposition="outside",
+                textfont=dict(color="#e2e8f0", size=10),
+                hovertemplate="%{x}: %{y:.2f}%<extra></extra>",
+            ))
+            fig_stat.update_layout(
+                xaxis_title="Class",
+                yaxis_title="Stationary Probability (%)",
+                yaxis_range=[0, 30],
+                xaxis_tickangle=-35,
+                showlegend=False,
+            )
+            style_plot(fig_stat, height=300)
+            st.plotly_chart(fig_stat, use_container_width=True)
+            st.caption("Long-run equilibrium distribution after 200 Markov steps — reflects the natural prevalence of each land-use class in the EuroSAT dataset.")
 
 
 # =============================================================================
